@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Remote Assist</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="app">
+    <h1 id="heading">Remote Assist</h1>
+    <p id="subheading"></p>
+
+    <section id="disclosure-panel" hidden>
+      <p id="disclosure-text" class="disclosure"></p>
+    </section>
+
+    <section id="code-panel" hidden>
+      <div id="host-code-view" hidden>
+        <p class="label">Share this code with the other person by phone or chat:</p>
+        <div id="code-display" class="code"></div>
+      </div>
+      <div id="helper-code-entry" hidden>
+        <p class="label">Enter the code the other person read to you:</p>
+        <input id="code-input" inputmode="numeric" maxlength="6" placeholder="000000" />
+      </div>
+    </section>
+
+    <section id="actions-panel">
+      <button id="btn-primary"></button>
+      <button id="btn-cancel" hidden>Cancel</button>
+    </section>
+
+    <section id="status-panel">
+      <p id="status-text"></p>
+    </section>
+
+    <section id="active-panel" hidden>
+      <p class="active-banner">Session active. Screen sharing and input control (phase 2) would run here.</p>
+      <p class="hotkey-hint">Press <kbd>Ctrl+Alt+End</kbd> anywhere, or the button below, to end it instantly.</p>
+      <button id="btn-end">End Session</button>
+    </section>
+
+    <section id="ended-panel" hidden>
+      <p id="ended-text"></p>
+      <button id="btn-restart">Start Over</button>
+    </section>
+  </main>
+  <script src="main.js"></script>
+</body>
+</html>
