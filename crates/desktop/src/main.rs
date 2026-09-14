@@ -230,7 +230,8 @@ fn main() {
                 .with_handler(|app, _shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
                         let state = app.state::<AppState>();
-                        if let Ok(mut session) = state.0.lock() {
+                        let lock_result = state.0.lock();
+                        if let Ok(mut session) = lock_result {
                             session.hotkey_end_both();
                         }
                     }

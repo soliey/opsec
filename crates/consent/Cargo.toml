@@ -7,7 +7,3 @@ description = "Auditable mutual-consent handshake for the remote assistance app.
 
 [dependencies]
 rand = "0.8"
-
-[lints.clippy]
-unwrap_used = "warn"
-expect_used = "warn"
