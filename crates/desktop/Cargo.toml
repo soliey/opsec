@@ -1,16 +1,30 @@
 [package]
-name = "desktop"
+name = "remote-assist"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Host/Helper consent handshake UI. Wires the `consent` crate to Tauri windows and a global end-session hotkey. No screen capture, input injection, or real network transport lives here yet — those are later phases."
+description = "Host/Helper consent handshake UI, screen capture, and host settings. Wires `consent`, `capture`, and `settings` to Tauri windows and a global end-session hotkey."
+
+[lib]
+name = "remote_assist_lib"
+path = "src/lib.rs"
 
 [build-dependencies]
 tauri-build = "2"
 
 [dependencies]
 consent = { path = "../consent" }
+capture = { path = "../capture" }
+settings = { path = "../settings" }
 tauri = { version = "2", features = [] }
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+] }

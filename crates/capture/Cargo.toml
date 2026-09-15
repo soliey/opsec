@@ -1,0 +1,20 @@
+[package]
+name = "capture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Screen capture (DXGI Desktop Duplication / ScreenCaptureKit via scap) and exclusion of our own windows from any capture output. No streaming/transport lives here yet."
+
+# scap 0.1.0-beta.1 (the version with cross-platform window exclusion via
+# `Options.excluded_targets`) is unbuildable as published: its own Cargo.toml
+# requires windows-capture ^1.5.0, but its vendored source doesn't compile
+# against that version (a real upstream release bug, not something pinning
+# can fix since ^1.5.0 forbids going lower). Using the last stable release
+# instead; it lacks `excluded_targets`, so macOS window exclusion isn't
+# wired through scap yet — see src/exclusion.rs for the consequence and the
+# path to close that gap once upstream is fixed.
+[dependencies]
+scap = "0.0.8"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

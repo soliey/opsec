@@ -148,3 +148,71 @@ kbd {
   padding: 14px 16px;
   font-size: 13.5px;
 }
+
+#active-panel-minimal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+#active-panel-minimal .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex-shrink: 0;
+}
+
+#active-panel-minimal span:nth-child(2) {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+}
+
+#active-panel-minimal button {
+  width: auto;
+  margin: 0;
+  padding: 6px 12px;
+  background: var(--danger);
+  color: white;
+  font-size: 13px;
+}
+
+.link-button {
+  width: auto;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 4px 0;
+  font-size: 12.5px;
+  text-decoration: underline;
+  margin: 0;
+}
+
+#settings-toggle-row {
+  text-align: center;
+  margin-top: 24px;
+}
+
+#settings-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.radio-row {
+  display: block;
+  font-size: 13.5px;
+  color: var(--text);
+  margin: 6px 0;
+  cursor: pointer;
+}
+
+.radio-row input {
+  margin-right: 6px;
+}

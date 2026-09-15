@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "RemoteAssistConsentDemo",
+  "productName": "Remote Assist",
   "version": "0.1.0",
-  "identifier": "dev.bkunkler.remoteassist.consent",
+  "identifier": "dev.bkunkler.remoteassist",
   "build": {
     "frontendDist": "../ui"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "host",
-        "title": "Remote Assist - Host (being helped)",
+        "title": "Remote Assist",
         "url": "index.html?role=host",
         "width": 460,
         "height": 640,
@@ -20,7 +20,7 @@
       },
       {
         "label": "helper",
-        "title": "Remote Assist - Helper (assisting)",
+        "title": "Remote Assist",
         "url": "index.html?role=helper",
         "width": 460,
         "height": 640,

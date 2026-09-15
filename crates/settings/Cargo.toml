@@ -1,0 +1,13 @@
+[package]
+name = "settings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Host preferences (overlay visibility, in-session sounds). Pure data and defaults only; the desktop crate owns loading/saving and applying them to windows."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+consent = { path = "../consent" }
+serde_json = "1"

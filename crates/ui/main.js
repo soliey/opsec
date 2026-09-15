@@ -18,12 +18,18 @@ const btnPrimary = el("btn-primary");
 const btnCancel = el("btn-cancel");
 const statusText = el("status-text");
 const activePanel = el("active-panel");
+const activePanelMinimal = el("active-panel-minimal");
 const btnEnd = el("btn-end");
+const btnEndMinimal = el("btn-end-minimal");
 const endedPanel = el("ended-panel");
 const endedText = el("ended-text");
 const btnRestart = el("btn-restart");
+const settingsToggleRow = el("settings-toggle-row");
+const settingsPanel = el("settings-panel");
+const btnSettingsToggle = el("btn-settings-toggle");
+const quietSessionCheckbox = el("quiet-session-checkbox");
 
-heading.textContent = isHost ? "Remote Assist" : "Remote Assist";
+heading.textContent = "Remote Assist";
 subheading.textContent = isHost ? "You are the HOST (being helped)" : "You are the HELPER (assisting)";
 
 const END_REASON_TEXT = {
@@ -35,13 +41,72 @@ const END_REASON_TEXT = {
   PeerDisconnected: "The other person's connection was lost.",
 };
 
+let currentSettings = { overlay_visibility: "full", sounds_enabled: true };
+let lastPhase = null;
+
 function show(node, visible) {
   node.hidden = !visible;
+}
+
+// A short, synthesized cue — no embedded audio asset needed. Muted
+// entirely by the "quiet session" setting.
+function playCue(kind) {
+  if (!currentSettings.sounds_enabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = kind === "ended" ? 320 : 520;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.2);
+  } catch (e) {
+    // Audio isn't available in this context; the visual cue still shows.
+  }
+}
+
+async function loadSettings() {
+  if (!isHost) return;
+  currentSettings = await invoke("get_settings");
+  const radios = document.querySelectorAll('input[name="overlay"]');
+  radios.forEach((r) => {
+    r.checked = r.value === currentSettings.overlay_visibility;
+  });
+  quietSessionCheckbox.checked = !currentSettings.sounds_enabled;
+}
+
+async function saveSettings() {
+  await invoke("update_settings", { newSettings: currentSettings });
+}
+
+if (isHost) {
+  show(settingsToggleRow, true);
+  btnSettingsToggle.onclick = () => {
+    show(settingsPanel, settingsPanel.hidden);
+  };
+  document.querySelectorAll('input[name="overlay"]').forEach((radio) => {
+    radio.onchange = async () => {
+      currentSettings.overlay_visibility = radio.value;
+      await saveSettings();
+    };
+  });
+  quietSessionCheckbox.onchange = async () => {
+    currentSettings.sounds_enabled = !quietSessionCheckbox.checked;
+    await saveSettings();
+  };
 }
 
 async function refresh(dto) {
   if (!dto) {
     dto = await invoke("get_state", { role });
+  }
+
+  if (lastPhase !== dto.phase) {
+    if (dto.phase === "active") playCue("active");
+    if (dto.phase === "ended") playCue("ended");
+    lastPhase = dto.phase;
   }
 
   show(disclosurePanel, false);
@@ -50,12 +115,15 @@ async function refresh(dto) {
   show(helperCodeEntry, false);
   show(btnCancel, false);
   show(activePanel, false);
+  show(activePanelMinimal, false);
   show(endedPanel, false);
   btnPrimary.disabled = false;
   show(el("actions-panel"), true);
   show(el("status-panel"), true);
   statusText.textContent = "";
 
+  // The pre-connection disclosure screen is unconditional: it is never
+  // skipped or altered by a setting, regardless of overlay_visibility.
   switch (dto.phase) {
     case "awaiting_code": {
       if (isHost) {
@@ -126,7 +194,17 @@ async function refresh(dto) {
     case "active": {
       show(el("actions-panel"), false);
       show(el("status-panel"), false);
-      show(activePanel, true);
+      // Only the host's own overlay visibility setting changes anything
+      // here; the helper always sees the full active panel. The window
+      // itself (shown/hidden/resized) is handled entirely on the Rust
+      // side — this only decides which in-window panel to render.
+      if (isHost && currentSettings.overlay_visibility === "minimal_indicator") {
+        show(activePanelMinimal, true);
+      } else if (isHost && currentSettings.overlay_visibility === "presenter") {
+        // Window is hidden by the backend; nothing to render.
+      } else {
+        show(activePanel, true);
+      }
       break;
     }
 
@@ -140,12 +218,17 @@ async function refresh(dto) {
 }
 
 btnEnd.onclick = async () => refresh(await invoke("end_session", { role }));
+btnEndMinimal.onclick = async () => refresh(await invoke("end_session", { role }));
 btnRestart.onclick = async () => {
   await invoke("reset_session");
   await refresh();
 };
 
-refresh();
+(async () => {
+  await loadSettings();
+  await refresh();
+})();
+
 // Light polling so this window picks up state changes driven by the other
 // window's actions (e.g. the peer confirming, or the global hotkey).
 setInterval(() => refresh(), 400);

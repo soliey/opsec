@@ -35,14 +35,33 @@
     </section>
 
     <section id="active-panel" hidden>
-      <p class="active-banner">Session active. Screen sharing and input control (phase 2) would run here.</p>
+      <p class="active-banner">Session active. Your screen is being captured for the helper (our own windows are excluded from it).</p>
       <p class="hotkey-hint">Press <kbd>Ctrl+Alt+End</kbd> anywhere, or the button below, to end it instantly.</p>
       <button id="btn-end">End Session</button>
+    </section>
+
+    <section id="active-panel-minimal" hidden>
+      <span class="dot"></span>
+      <span>Active</span>
+      <button id="btn-end-minimal">End</button>
     </section>
 
     <section id="ended-panel" hidden>
       <p id="ended-text"></p>
       <button id="btn-restart">Start Over</button>
+    </section>
+
+    <section id="settings-toggle-row" hidden>
+      <button id="btn-settings-toggle" class="link-button">Settings</button>
+    </section>
+
+    <section id="settings-panel" hidden>
+      <p class="label">Overlay visibility during a session</p>
+      <label class="radio-row"><input type="radio" name="overlay" value="full" /> Full overlay</label>
+      <label class="radio-row"><input type="radio" name="overlay" value="minimal_indicator" /> Minimal corner indicator</label>
+      <label class="radio-row"><input type="radio" name="overlay" value="presenter" /> Presenter mode (fully hidden)</label>
+      <p class="label" style="margin-top: 14px;">Sounds</p>
+      <label class="radio-row"><input type="checkbox" id="quiet-session-checkbox" /> Quiet session (mute sounds)</label>
     </section>
   </main>
   <script src="main.js"></script>
