@@ -10,21 +10,12 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "label": "host",
+        "label": "main",
         "title": "Remote Assist",
-        "url": "index.html?role=host",
+        "url": "index.html",
         "width": 460,
         "height": 640,
         "x": 60,
-        "y": 80
-      },
-      {
-        "label": "helper",
-        "title": "Remote Assist",
-        "url": "index.html?role=helper",
-        "width": 460,
-        "height": 640,
-        "x": 560,
         "y": 80
       }
     ],

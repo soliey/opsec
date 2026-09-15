@@ -95,6 +95,13 @@ pub struct Settings {
     pub sounds_enabled: bool,
     pub input_feel: InputFeel,
     pub bandwidth_profile: BandwidthProfile,
+    /// Which side of a session this installation acts as. `None` until the
+    /// human picks one on first run — every other field has a sensible
+    /// default, but this one can't, since defaulting it would silently
+    /// decide something the disclosure/consent flow is supposed to ask
+    /// about explicitly. See `consent::Role`; this crate takes on a real
+    /// (not dev-only) dependency on `consent` for exactly this field.
+    pub role: Option<consent::Role>,
 }
 
 impl Default for Settings {
@@ -104,6 +111,7 @@ impl Default for Settings {
             sounds_enabled: true,
             input_feel: InputFeel::Smooth,
             bandwidth_profile: BandwidthProfile::Standard,
+            role: None,
         }
     }
 }
@@ -127,6 +135,7 @@ mod tests {
         assert!(!s.is_quiet_session());
         assert_eq!(s.input_feel, InputFeel::Smooth);
         assert_eq!(s.bandwidth_profile, BandwidthProfile::Standard);
+        assert_eq!(s.role, None, "role must not have a default — see the field's doc comment");
     }
 
     #[test]
@@ -165,6 +174,7 @@ mod tests {
             sounds_enabled: false,
             input_feel: InputFeel::VeryNatural,
             bandwidth_profile: BandwidthProfile::Low,
+            role: Some(consent::Role::Helper),
         };
         let json = serde_json::to_string(&s).expect("serialize");
         let back: Settings = serde_json::from_str(&json).expect("deserialize");

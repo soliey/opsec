@@ -1,5 +1,7 @@
 use hkdf::Hkdf;
 use rand::Rng;
+use serde::de::{self, Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
 use sha2::Sha256;
 use std::fmt;
 use zeroize::Zeroize;
@@ -119,6 +121,25 @@ impl fmt::Display for SessionCode {
     }
 }
 
+/// Wire format is just the digit string. Serializing is trivial; the
+/// interesting half is `Deserialize`, which intentionally does **not**
+/// derive — it routes through [`SessionCode::parse`] so a message that
+/// crossed a real network can't hand this type a value that skips the
+/// "exactly `CODE_LEN` ASCII digits" invariant every other constructor
+/// enforces.
+impl Serialize for SessionCode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionCode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        SessionCode::parse(&s).map_err(de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +226,29 @@ mod tests {
         let code = SessionCode::parse("042817").unwrap();
         let key = code.derive_key(b"purpose-a");
         assert_eq!(format!("{key:?}"), "SessionKey(..)");
+    }
+
+    #[test]
+    fn serializes_as_the_plain_digit_string() {
+        let code = SessionCode::parse("042817").unwrap();
+        assert_eq!(serde_json::to_string(&code).unwrap(), "\"042817\"");
+    }
+
+    #[test]
+    fn deserialize_round_trips_a_valid_code() {
+        let code = SessionCode::parse("042817").unwrap();
+        let json = serde_json::to_string(&code).unwrap();
+        let back: SessionCode = serde_json::from_str(&json).unwrap();
+        assert_eq!(code, back);
+    }
+
+    #[test]
+    fn deserialize_rejects_what_parse_would_reject() {
+        // A malicious or buggy relay can't hand this type a value that
+        // bypasses `SessionCode::parse`'s own validation.
+        let err: Result<SessionCode, _> = serde_json::from_str("\"12a456\"");
+        assert!(err.is_err());
+        let err: Result<SessionCode, _> = serde_json::from_str("\"12345\"");
+        assert!(err.is_err());
     }
 }

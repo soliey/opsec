@@ -36,6 +36,7 @@ fn no_visibility_setting_activates_without_both_confirmations() {
                     sounds_enabled: true,
                     input_feel,
                     bandwidth_profile,
+                    role: Some(Role::Host),
                 };
 
                 let mut m = HandshakeMachine::new(Role::Host);
@@ -62,6 +63,7 @@ fn every_visibility_setting_still_requires_the_peers_matching_confirm() {
                     sounds_enabled: false,
                     input_feel,
                     bandwidth_profile,
+                    role: Some(Role::Host),
                 };
 
                 let mut m = HandshakeMachine::new(Role::Host);

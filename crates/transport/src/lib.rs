@@ -21,35 +21,38 @@
 //! - [`encoder`] — [`encoder::VideoEncoder`] trait, a real software H.264
 //!   backend via `openh264`, and a real (Windows) hardware-encoder
 //!   *availability probe* via Media Foundation's `MFTEnumEx`.
+//! - [`webrtc_media`] — [`webrtc_media::WebRtcMediaLink`]: a real, P2P
+//!   `RTCPeerConnection` with two `RTCDataChannel`s (`"media"`, `"input"`),
+//!   STUN-only ICE (no TURN configured — symmetric-NAT pairs won't connect,
+//!   an accepted limitation), negotiated over whatever [`webrtc_media::
+//!   SdpChannel`] the caller supplies (in practice, `signaling::
+//!   SupabaseRealtimeLink`). Video still rides the data channel as opaque
+//!   chunked bytes rather than a proper RTP media track with jitter
+//!   buffer/FEC — intentional, since it keeps the existing application-level
+//!   encode/pace/decode pipeline unchanged rather than a real limitation to
+//!   fix here.
 //!
 //! # What's honestly not wired up yet
 //!
 //! The task names `libdatachannel` for P2P DTLS-SRTP + TURN fallback.
 //! `libdatachannel`'s Rust bindings (the `datachannel` crate) require
 //! building the C++ library via a CMake build script; this sandbox has no
-//! `cmake` installed at all, so that path is a dead end here — confirmed by
-//! actually trying it, not assumed (`cargo check` fails immediately with
-//! "program not found: cmake").
+//! `cmake` installed at all, so that path was a dead end — confirmed by
+//! actually trying it, not assumed. [`webrtc_media`] uses the pure-Rust
+//! `webrtc` crate (webrtc-rs 0.20) instead, which builds cleanly here.
 //!
-//! The pure-Rust alternative, `webrtc` (webrtc-rs 0.20), *does* build
-//! cleanly here (verified) and covers the same ICE/DTLS/SRTP/SCTP/TURN
-//! surface. It was not wired into a working `PeerConnection` in this phase:
-//! its 0.20 API is a substantial, unfamiliar, builder/trait-based surface
-//! (custom pluggable async runtime, `PeerConnectionEventHandler` callbacks)
-//! that would take real trial-and-error to get right, and — more
-//! fundamentally — this is a single sandboxed machine, so even a
-//! byte-perfect implementation of real two-peer ICE/DTLS connectivity
-//! couldn't be verified end-to-end here, the same unverifiable-without-
-//! real-hardware situation `capture::exclusion::macos` and
-//! `input::backend::macos` are already honest about. [`ice`] builds the
-//! one piece of that integration that *is* real, pure, and testable without
-//! a live peer: the ICE server list (STUN default + TURN relay fallback,
-//! per `settings`), shaped to drop straight into `webrtc::peer_connection::
-//! transport::RTCIceServer` when a future phase wires up a real
-//! `PeerConnectionBuilder` — see that module's doc comment for the mapping.
+//! Real two-peer ICE/DTLS connectivity across distinct NATs/networks still
+//! can't be verified end-to-end from a single sandboxed machine — the same
+//! unverifiable-without-real-hardware situation `capture::exclusion::macos`
+//! and `input::backend::macos` are already honest about. What *is*
+//! verified here: two local processes on one machine, both negotiating over
+//! the real (live, internet-facing) Supabase Realtime relay, exercise the
+//! full offer/answer/ICE-candidate/data-channel-open path for real —
+//! localhost ICE candidates only, not real cross-NAT server-reflexive
+//! negotiation.
 //!
 //! The actual hardware encode *pipeline* (feeding `IMFTransform` samples on
-//! Windows, `VTCompressionSession` on macOS) is the same kind of gap:
+//! Windows, `VTCompressionSession` on macOS) is a separate, still-open gap:
 //! [`encoder`]'s Windows backend really probes for hardware H.264 support
 //! (`MFTEnumEx`), but routes bytes through the software encoder either way
 //! — see that module's doc comment.
@@ -61,3 +64,4 @@ pub mod ice;
 pub mod loopback;
 pub mod signaling;
 pub mod still_screen;
+pub mod webrtc_media;

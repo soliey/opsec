@@ -59,6 +59,23 @@ impl std::fmt::Display for TransportError {
 
 impl std::error::Error for TransportError {}
 
+/// A duplex channel carrying opaque application bytes (an encoded video
+/// frame, a serialized input event, ...) between host and helper.
+/// [`LoopbackTransport`] is the in-process stand-in used by tests and the
+/// same-machine demo path; [`crate::webrtc_media::WebRtcMediaLink`] is the
+/// real, cross-machine implementation over a WebRTC data channel — both
+/// share this exact shape so the streaming pipeline can stay generic over
+/// either.
+pub trait MediaLink {
+    /// Encrypts (where applicable — the WebRTC implementation additionally
+    /// relies on DTLS-SRTP, this one is the only encryption in play) and
+    /// sends one frame. Never blocks.
+    fn send(&mut self, plaintext: &[u8]);
+    /// Non-blocking: `Ok(None)` if nothing has arrived yet, `Err` if the
+    /// peer disconnected or a frame failed to authenticate/decrypt.
+    fn try_recv(&self) -> Result<Option<Vec<u8>>, TransportError>;
+}
+
 /// One end of an encrypted, in-process, full-duplex channel.
 pub struct LoopbackTransport {
     encrypt_cipher: ChaCha20Poly1305,
@@ -122,6 +139,16 @@ impl LoopbackTransport {
             Err(mpsc::TryRecvError::Empty) => Ok(None),
             Err(mpsc::TryRecvError::Disconnected) => Err(TransportError::Disconnected),
         }
+    }
+}
+
+impl MediaLink for LoopbackTransport {
+    fn send(&mut self, plaintext: &[u8]) {
+        LoopbackTransport::send(self, plaintext);
+    }
+
+    fn try_recv(&self) -> Result<Option<Vec<u8>>, TransportError> {
+        LoopbackTransport::try_recv(self)
     }
 }
 

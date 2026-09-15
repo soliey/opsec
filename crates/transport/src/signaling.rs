@@ -72,6 +72,21 @@ pub fn open(key: &SessionKey, envelope: &SignalingEnvelope) -> Result<Vec<u8>, A
     Ok(envelope.payload.clone())
 }
 
+impl SignalingEnvelope {
+    /// Crate-internal escape hatch so a sibling module (`webrtc_media`) can
+    /// put an envelope on the wire as JSON without this module needing to
+    /// grow a `Serialize`/`Deserialize` dependency of its own — `mac` stays
+    /// private to outside callers, who must still go through [`seal`]/
+    /// [`open`].
+    pub(crate) fn into_parts(self) -> (Vec<u8>, [u8; MAC_LEN]) {
+        (self.payload, self.mac)
+    }
+
+    pub(crate) fn from_parts(payload: Vec<u8>, mac: [u8; MAC_LEN]) -> Self {
+        Self { payload, mac }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

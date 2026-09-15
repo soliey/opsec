@@ -25,6 +25,7 @@
 //! confirmations) is required to connect again.
 
 use crate::code::{SessionCode, SessionKey};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Shown on the pre-connection screen on both machines, verbatim, before the
@@ -37,7 +38,8 @@ your mouse and keyboard. Nothing is shared until you both enter the same \
 session code and press Confirm. You can end the session instantly, at any \
 time, by pressing the global hotkey on either computer.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Role {
     Host,
     Helper,
@@ -91,7 +93,15 @@ pub enum LocalEvent {
 /// Messages arriving from the peer over whatever transport is wired up.
 /// This is the *only* way remote intent enters the machine — there is no
 /// "trust the transport" shortcut into `Active`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Serialize`/`Deserialize` exist so a real network-backed [`crate::
+/// transport::PeerLink`] (e.g. `signaling::SupabaseRealtimeLink`) can put
+/// these on the wire as JSON; nothing about the handshake guarantee itself
+/// changes; see that crate's docs for the one accepted gap this opens
+/// (`Confirm{code}` crosses the relay unauthenticated, since no
+/// `SessionKey` exists yet at that point in the handshake).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PeerMessage {
     Confirm { code: SessionCode },
     Cancel,
