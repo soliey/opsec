@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/consent", "crates/settings", "crates/capture", "crates/desktop"]
+members = ["crates/consent", "crates/settings", "crates/capture", "crates/input", "crates/desktop"]
 
 [workspace.package]
 version = "0.1.0"

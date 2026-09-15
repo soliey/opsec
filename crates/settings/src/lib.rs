@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 /// excluded from the capture/stream regardless of this setting (see the
 /// `capture` crate), so this only changes what the *host* sees locally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OverlayVisibility {
     /// The full status window: banner, hotkey hint, End Session button.
     #[default]
@@ -36,6 +37,29 @@ pub enum OverlayVisibility {
     Presenter,
 }
 
+/// How the `input` crate's `natural_input` module paces mouse movement and
+/// click timing when *this* machine is sending input as the helper. Purely
+/// a feel/comfort preference: every value goes through the exact same
+/// consent gate (`NaturalInput` re-checks live session state before every
+/// injected event, in every profile below), so this can never widen when or
+/// whether input is allowed to be sent — only how it's shaped once it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputFeel {
+    /// Direct, immediate cursor placement and key timing. No curvature, no
+    /// jitter, no pauses — a deliberate choice for users who prefer
+    /// precision over human-likeness, not an attempt to look robotic by
+    /// accident.
+    Instant,
+    /// Eased, curved mouse movement with light click-timing jitter, natural
+    /// pacing. The default.
+    #[default]
+    Smooth,
+    /// Adds organic low-frequency tremor and more variable cadence on top
+    /// of `Smooth`, for users who prefer movement to read as fully organic.
+    VeryNatural,
+}
+
 /// Host preferences for the current and future sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
@@ -43,6 +67,7 @@ pub struct Settings {
     /// In-session sounds and notification cues. On by default; a "quiet
     /// session" is `sounds_enabled: false`.
     pub sounds_enabled: bool,
+    pub input_feel: InputFeel,
 }
 
 impl Default for Settings {
@@ -50,6 +75,7 @@ impl Default for Settings {
         Self {
             overlay_visibility: OverlayVisibility::Full,
             sounds_enabled: true,
+            input_feel: InputFeel::Smooth,
         }
     }
 }
@@ -71,6 +97,26 @@ mod tests {
         assert_eq!(s.overlay_visibility, OverlayVisibility::Full);
         assert!(s.sounds_enabled);
         assert!(!s.is_quiet_session());
+        assert_eq!(s.input_feel, InputFeel::Smooth);
+    }
+
+    #[test]
+    fn enum_wire_format_matches_the_lowercase_snake_case_values_the_ui_sends() {
+        // crates/ui/main.js sets these fields directly from HTML radio
+        // `value`s ("minimal_indicator", "very_natural", ...) — without
+        // `rename_all = "snake_case"` those wouldn't deserialize against
+        // the default PascalCase variant names at all, silently failing
+        // every `update_settings` call from the settings panel.
+        assert_eq!(serde_json::to_string(&OverlayVisibility::Full).unwrap(), "\"full\"");
+        assert_eq!(
+            serde_json::to_string(&OverlayVisibility::MinimalIndicator).unwrap(),
+            "\"minimal_indicator\""
+        );
+        assert_eq!(serde_json::to_string(&OverlayVisibility::Presenter).unwrap(), "\"presenter\"");
+
+        assert_eq!(serde_json::to_string(&InputFeel::Instant).unwrap(), "\"instant\"");
+        assert_eq!(serde_json::to_string(&InputFeel::Smooth).unwrap(), "\"smooth\"");
+        assert_eq!(serde_json::to_string(&InputFeel::VeryNatural).unwrap(), "\"very_natural\"");
     }
 
     #[test]
@@ -78,6 +124,7 @@ mod tests {
         let s = Settings {
             overlay_visibility: OverlayVisibility::Presenter,
             sounds_enabled: false,
+            input_feel: InputFeel::VeryNatural,
         };
         let json = serde_json::to_string(&s).expect("serialize");
         let back: Settings = serde_json::from_str(&json).expect("deserialize");

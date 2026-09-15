@@ -12,10 +12,11 @@ pub mod overlay;
 
 use consent::transport::{LoopbackLink, PeerLink};
 use consent::{HandshakeMachine, LocalEvent, PeerMessage, Role, SessionCode, SessionState};
+use input::{InputBackend, InputError, KeyCode, MouseButton, NaturalInput, SessionGate};
 use serde::Serialize;
 use settings::{OverlayVisibility, Settings};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -63,10 +64,45 @@ impl Session {
     }
 }
 
+/// Live gate for [`NaturalInput`]: reads the *current* state of the host's
+/// side of the handshake on every check, never a cached snapshot — see
+/// `input::natural_input`'s module docs for why that matters. Injection
+/// always executes on the host machine, so it's gated on `session.host`,
+/// regardless of which side (host's own hotkey, or the helper's, relayed
+/// as a `PeerMessage`) caused the session to end.
+struct HostGate(Arc<Mutex<Session>>);
+
+impl SessionGate for HostGate {
+    fn is_active(&self) -> bool {
+        self.0.lock().map(|s| s.host.is_active()).unwrap_or(false)
+    }
+}
+
+#[cfg(windows)]
+fn make_backend() -> Box<dyn InputBackend + Send> {
+    Box::new(input::backend::windows::SendInputBackend::new())
+}
+
+#[cfg(target_os = "macos")]
+fn make_backend() -> Box<dyn InputBackend + Send> {
+    Box::new(input::backend::macos::CgEventBackend::new(0.0, 0.0))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn make_backend() -> Box<dyn InputBackend + Send> {
+    Box::new(input::backend::NullBackend)
+}
+
 struct AppState {
-    session: Mutex<Session>,
+    session: Arc<Mutex<Session>>,
     settings: Mutex<Settings>,
     settings_path: PathBuf,
+    /// The one instance through which every helper-initiated input event
+    /// flows, on this (host) machine. `Mutex`-guarded because Tauri
+    /// commands run on whatever thread the frontend's call lands on, but
+    /// there is only ever one `NaturalInput` for the whole app — matching
+    /// the hotkey's "stop *all* input" scope.
+    input: Mutex<NaturalInput<HostGate, Box<dyn InputBackend + Send>>>,
 }
 
 fn load_settings(path: &Path) -> Settings {
@@ -90,10 +126,20 @@ fn save_settings(path: &Path, settings: &Settings) {
 /// always show in full, regardless of settings. This is the only place
 /// overlay visibility is applied; it never touches whether the window is
 /// excluded from capture (that's permanent, set once at window creation).
+///
+/// Also toggles whether the window can be focused at all
+/// (`set_focusable`, `WS_EX_NOACTIVATE` on Windows / a nonactivating
+/// `NSPanel` on macOS under Tauri's hood) — see CLAUDE.md, "Session
+/// behavior": while a session is Active, our window must never steal focus
+/// from whatever the host is doing (up to and including a fullscreen game),
+/// in every overlay mode, not just the reduced ones. Before/after Active
+/// the host needs real keyboard focus to type a code or click buttons, so
+/// it's focusable there as normal.
 fn apply_host_overlay(app: &tauri::AppHandle, is_active: bool, mode: OverlayVisibility) {
     let Some(window) = app.get_webview_window("host") else {
         return;
     };
+    let _ = window.set_focusable(!is_active);
     let mode = if is_active { mode } else { OverlayVisibility::Full };
     match overlay::geometry_for(mode) {
         Some(rect) => {
@@ -193,6 +239,9 @@ fn update_settings(
     {
         let mut settings = state.settings.lock().map_err(|_| "settings lock poisoned".to_string())?;
         *settings = new_settings;
+    }
+    if let Ok(mut input) = state.input.lock() {
+        input.set_feel(new_settings.input_feel);
     }
     save_settings(&state.settings_path, &new_settings);
     let is_active = state
@@ -321,6 +370,9 @@ fn end_session(app: tauri::AppHandle, state: tauri::State<AppState>, role: Strin
     };
     // The end-session control (like the global hotkey) always fully ends
     // the session, so the host is never left active here.
+    if let Ok(mut input) = state.input.lock() {
+        input.release_all_held();
+    }
     apply_host_overlay(&app, false, current_overlay_mode(&state));
     Ok(dto)
 }
@@ -331,8 +383,55 @@ fn reset_session(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result
         let mut session = state.session.lock().map_err(|_| "session lock poisoned".to_string())?;
         *session = Session::new();
     }
+    if let Ok(mut input) = state.input.lock() {
+        input.release_all_held();
+    }
     apply_host_overlay(&app, false, current_overlay_mode(&state));
     Ok(())
+}
+
+fn mouse_button_from_str(button: &str) -> Result<MouseButton, String> {
+    match button {
+        "left" => Ok(MouseButton::Left),
+        "right" => Ok(MouseButton::Right),
+        "middle" => Ok(MouseButton::Middle),
+        other => Err(format!("unknown mouse button: {other}")),
+    }
+}
+
+/// Moves the host's cursor to `(x, y)` along a human-paced path (per the
+/// current `input_feel` setting), sent by the helper's control surface.
+/// Hard-gated on live host session state inside `NaturalInput` — see
+/// `HostGate` and `input::natural_input`. A refusal (session not active)
+/// is not surfaced as a command error: it's the expected outcome once a
+/// session has ended, and the frontend's own state polling already reflects
+/// that.
+#[tauri::command]
+fn helper_move_mouse(state: tauri::State<AppState>, x: i32, y: i32) -> Result<(), String> {
+    let mut input = state.input.lock().map_err(|_| "input lock poisoned".to_string())?;
+    match input.move_mouse_to((x, y)) {
+        Ok(()) | Err(InputError::SessionNotActive) => Ok(()),
+    }
+}
+
+/// Moves to `(x, y)` and clicks `button` there, with human-paced timing.
+#[tauri::command]
+fn helper_click(state: tauri::State<AppState>, button: String, x: i32, y: i32) -> Result<(), String> {
+    let button = mouse_button_from_str(&button)?;
+    let mut input = state.input.lock().map_err(|_| "input lock poisoned".to_string())?;
+    match input.click(button, (x, y)) {
+        Ok(()) | Err(InputError::SessionNotActive) => Ok(()),
+    }
+}
+
+/// A single human-paced key tap (down, brief hold, up). `code` is a raw
+/// platform virtual-key code (Windows) — see `input::backend::KeyCode`.
+#[tauri::command]
+fn helper_key_press(state: tauri::State<AppState>, code: u16) -> Result<(), String> {
+    let mut input = state.input.lock().map_err(|_| "input lock poisoned".to_string())?;
+    match input.key_press(KeyCode(code)) {
+        Ok(()) | Err(InputError::SessionNotActive) => Ok(()),
+    }
 }
 
 const HOTKEY: &str = "CommandOrControl+Alt+End";
@@ -369,6 +468,15 @@ pub fn run() {
                                 session.hotkey_end_both();
                             }
                         }
+                        // Belt-and-braces: `NaturalInput` already refuses
+                        // any further event the instant `HostGate` reports
+                        // inactive (true the moment `hotkey_end_both`
+                        // returns, above), but force-release whatever it
+                        // may have been mid-way through holding down too,
+                        // so a key/button never reads as stuck on the host.
+                        if let Ok(mut input) = state.input.lock() {
+                            input.release_all_held();
+                        }
                         apply_host_overlay(app, false, current_overlay_mode(&state));
                     }
                 })
@@ -386,10 +494,15 @@ pub fn run() {
             exclude_window_from_capture(app.handle(), "host");
             exclude_window_from_capture(app.handle(), "helper");
 
+            let session = Arc::new(Mutex::new(Session::new()));
+            let gate = HostGate(session.clone());
+            let natural_input = NaturalInput::new(gate, make_backend(), initial_settings.input_feel, (0, 0));
+
             app.manage(AppState {
-                session: Mutex::new(Session::new()),
+                session,
                 settings: Mutex::new(initial_settings),
                 settings_path,
+                input: Mutex::new(natural_input),
             });
 
             Ok(())
@@ -407,6 +520,9 @@ pub fn run() {
             helper_cancel,
             end_session,
             reset_session,
+            helper_move_mouse,
+            helper_click,
+            helper_key_press,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

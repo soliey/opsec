@@ -40,6 +40,11 @@
       <button id="btn-end">End Session</button>
     </section>
 
+    <section id="remote-surface-panel" hidden>
+      <p class="label">Try it: move/click inside this box to send human-paced input to the host, near the top-left of their screen. It stops instantly the moment the session ends.</p>
+      <div id="remote-surface"><span id="remote-surface-hint">move / click here</span></div>
+    </section>
+
     <section id="active-panel-minimal" hidden>
       <span class="dot"></span>
       <span>Active</span>
@@ -62,6 +67,10 @@
       <label class="radio-row"><input type="radio" name="overlay" value="presenter" /> Presenter mode (fully hidden)</label>
       <p class="label" style="margin-top: 14px;">Sounds</p>
       <label class="radio-row"><input type="checkbox" id="quiet-session-checkbox" /> Quiet session (mute sounds)</label>
+      <p class="label" style="margin-top: 14px;">Input feel (mouse pacing when this machine sends input as the helper)</p>
+      <label class="radio-row"><input type="radio" name="input-feel" value="instant" /> Instant (precise, no easing)</label>
+      <label class="radio-row"><input type="radio" name="input-feel" value="smooth" /> Smooth</label>
+      <label class="radio-row"><input type="radio" name="input-feel" value="very_natural" /> Very natural (organic tremor)</label>
     </section>
   </main>
   <script src="main.js"></script>

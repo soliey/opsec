@@ -28,6 +28,8 @@ const settingsToggleRow = el("settings-toggle-row");
 const settingsPanel = el("settings-panel");
 const btnSettingsToggle = el("btn-settings-toggle");
 const quietSessionCheckbox = el("quiet-session-checkbox");
+const remoteSurfacePanel = el("remote-surface-panel");
+const remoteSurface = el("remote-surface");
 
 heading.textContent = "Remote Assist";
 subheading.textContent = isHost ? "You are the HOST (being helped)" : "You are the HELPER (assisting)";
@@ -41,7 +43,7 @@ const END_REASON_TEXT = {
   PeerDisconnected: "The other person's connection was lost.",
 };
 
-let currentSettings = { overlay_visibility: "full", sounds_enabled: true };
+let currentSettings = { overlay_visibility: "full", sounds_enabled: true, input_feel: "smooth" };
 let lastPhase = null;
 
 function show(node, visible) {
@@ -75,6 +77,9 @@ async function loadSettings() {
     r.checked = r.value === currentSettings.overlay_visibility;
   });
   quietSessionCheckbox.checked = !currentSettings.sounds_enabled;
+  document.querySelectorAll('input[name="input-feel"]').forEach((r) => {
+    r.checked = r.value === currentSettings.input_feel;
+  });
 }
 
 async function saveSettings() {
@@ -96,6 +101,43 @@ if (isHost) {
     currentSettings.sounds_enabled = !quietSessionCheckbox.checked;
     await saveSettings();
   };
+  document.querySelectorAll('input[name="input-feel"]').forEach((radio) => {
+    radio.onchange = async () => {
+      currentSettings.input_feel = radio.value;
+      await saveSettings();
+    };
+  });
+}
+
+// The helper's "try it" control surface: box-local coordinates are scaled
+// up into a small, predictable region near the top-left of the host's
+// real screen, so the demo moves the host's actual cursor somewhere safe
+// and visible rather than wherever the virtual desktop's origin lands.
+// Every event below is refused server-side the instant the session isn't
+// Active (see NaturalInput/HostGate in the desktop crate) — this is only
+// about where a *permitted* event lands, never about permission itself.
+const REMOTE_SURFACE_SCALE = 5;
+
+function remoteSurfaceToScreenXY(evt) {
+  const rect = remoteSurface.getBoundingClientRect();
+  const bx = Math.max(0, Math.min(rect.width, evt.clientX - rect.left));
+  const by = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
+  return [Math.round(bx * REMOTE_SURFACE_SCALE), Math.round(by * REMOTE_SURFACE_SCALE)];
+}
+
+if (!isHost) {
+  let lastMoveSentAt = 0;
+  remoteSurface.addEventListener("mousemove", (evt) => {
+    const now = performance.now();
+    if (now - lastMoveSentAt < 30) return;
+    lastMoveSentAt = now;
+    const [x, y] = remoteSurfaceToScreenXY(evt);
+    invoke("helper_move_mouse", { x, y }).catch(() => {});
+  });
+  remoteSurface.addEventListener("click", (evt) => {
+    const [x, y] = remoteSurfaceToScreenXY(evt);
+    invoke("helper_click", { button: "left", x, y }).catch(() => {});
+  });
 }
 
 async function refresh(dto) {
@@ -117,6 +159,7 @@ async function refresh(dto) {
   show(activePanel, false);
   show(activePanelMinimal, false);
   show(endedPanel, false);
+  show(remoteSurfacePanel, false);
   btnPrimary.disabled = false;
   show(el("actions-panel"), true);
   show(el("status-panel"), true);
@@ -205,6 +248,9 @@ async function refresh(dto) {
       } else {
         show(activePanel, true);
       }
+      // The control surface is helper-only: the host is the one being
+      // controlled, not the one controlling.
+      show(remoteSurfacePanel, !isHost);
       break;
     }
 

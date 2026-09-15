@@ -16,6 +16,7 @@ tauri-build = "2"
 consent = { path = "../consent" }
 capture = { path = "../capture" }
 settings = { path = "../settings" }
+input = { path = "../input" }
 tauri = { version = "2", features = [] }
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }

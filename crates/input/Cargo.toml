@@ -1,0 +1,23 @@
+[package]
+name = "input"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Human-paced mouse/keyboard injection (`natural_input`), hard-gated on live consent state. Injects exclusively via SendInput (Windows) / CGEvent (macOS) — no DLL injection, no SetWindowsHookEx, no memory reads of other processes. Does not depend on `consent` itself: the gate is a trait any live session-state oracle can implement, so `consent::HandshakeMachine` is only ever wired in by the caller (see `crates/desktop`) and exercised directly in this crate's own tests."
+
+[dependencies]
+settings = { path = "../settings" }
+rand = "0.8"
+
+[dev-dependencies]
+consent = { path = "../consent" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.24"
