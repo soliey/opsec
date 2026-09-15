@@ -40,6 +40,11 @@
       <button id="btn-end">End Session</button>
     </section>
 
+    <section id="stream-view-panel" hidden>
+      <p class="label">Host's screen (encrypted, adaptive quality; near-zero updates while it's not changing)</p>
+      <canvas id="stream-canvas"></canvas>
+    </section>
+
     <section id="remote-surface-panel" hidden>
       <p class="label">Try it: move/click inside this box to send human-paced input to the host, near the top-left of their screen. It stops instantly the moment the session ends.</p>
       <div id="remote-surface"><span id="remote-surface-hint">move / click here</span></div>
@@ -71,6 +76,9 @@
       <label class="radio-row"><input type="radio" name="input-feel" value="instant" /> Instant (precise, no easing)</label>
       <label class="radio-row"><input type="radio" name="input-feel" value="smooth" /> Smooth</label>
       <label class="radio-row"><input type="radio" name="input-feel" value="very_natural" /> Very natural (organic tremor)</label>
+      <p class="label" style="margin-top: 14px;">Bandwidth</p>
+      <label class="radio-row"><input type="radio" name="bandwidth" value="standard" /> Standard (up to 2 Mbps)</label>
+      <label class="radio-row"><input type="radio" name="bandwidth" value="low" /> Low (up to 0.5 Mbps)</label>
     </section>
   </main>
   <script src="main.js"></script>

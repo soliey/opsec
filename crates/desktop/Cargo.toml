@@ -3,7 +3,7 @@ name = "remote-assist"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Host/Helper consent handshake UI, screen capture, and host settings. Wires `consent`, `capture`, and `settings` to Tauri windows and a global end-session hotkey."
+description = "Host/Helper consent handshake UI, screen capture, streaming, input, and host settings. Wires `consent`, `capture`, `input`, `transport`, and `settings` to Tauri windows and a global end-session hotkey."
 
 [lib]
 name = "remote_assist_lib"
@@ -17,10 +17,12 @@ consent = { path = "../consent" }
 capture = { path = "../capture" }
 settings = { path = "../settings" }
 input = { path = "../input" }
+transport = { path = "../transport" }
 tauri = { version = "2", features = [] }
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

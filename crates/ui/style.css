@@ -234,3 +234,12 @@ kbd {
   color: var(--muted);
   font-size: 12.5px;
 }
+
+#stream-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}

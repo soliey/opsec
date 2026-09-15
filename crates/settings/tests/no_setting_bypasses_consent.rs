@@ -8,7 +8,7 @@
 //! configured and confirms the outcome never changes.
 
 use consent::{HandshakeMachine, LocalEvent, PeerMessage, Role, SessionCode};
-use settings::{InputFeel, OverlayVisibility, Settings};
+use settings::{BandwidthProfile, InputFeel, OverlayVisibility, Settings};
 
 fn all_visibilities() -> [OverlayVisibility; 3] {
     [
@@ -22,25 +22,32 @@ fn all_input_feels() -> [InputFeel; 3] {
     [InputFeel::Instant, InputFeel::Smooth, InputFeel::VeryNatural]
 }
 
+fn all_bandwidth_profiles() -> [BandwidthProfile; 2] {
+    [BandwidthProfile::Standard, BandwidthProfile::Low]
+}
+
 #[test]
 fn no_visibility_setting_activates_without_both_confirmations() {
     for visibility in all_visibilities() {
         for input_feel in all_input_feels() {
-            let settings = Settings {
-                overlay_visibility: visibility,
-                sounds_enabled: true,
-                input_feel,
-            };
+            for bandwidth_profile in all_bandwidth_profiles() {
+                let settings = Settings {
+                    overlay_visibility: visibility,
+                    sounds_enabled: true,
+                    input_feel,
+                    bandwidth_profile,
+                };
 
-            let mut m = HandshakeMachine::new(Role::Host);
-            let code = SessionCode::generate();
-            m.apply_local(LocalEvent::GenerateCode(code)).unwrap();
-            m.apply_local(LocalEvent::Confirm).unwrap();
+                let mut m = HandshakeMachine::new(Role::Host);
+                let code = SessionCode::generate();
+                m.apply_local(LocalEvent::GenerateCode(code)).unwrap();
+                m.apply_local(LocalEvent::Confirm).unwrap();
 
-            assert!(
-                !m.is_active(),
-                "{settings:?} must not activate a session on local confirm alone"
-            );
+                assert!(
+                    !m.is_active(),
+                    "{settings:?} must not activate a session on local confirm alone"
+                );
+            }
         }
     }
 }
@@ -49,23 +56,26 @@ fn no_visibility_setting_activates_without_both_confirmations() {
 fn every_visibility_setting_still_requires_the_peers_matching_confirm() {
     for visibility in all_visibilities() {
         for input_feel in all_input_feels() {
-            let settings = Settings {
-                overlay_visibility: visibility,
-                sounds_enabled: false,
-                input_feel,
-            };
+            for bandwidth_profile in all_bandwidth_profiles() {
+                let settings = Settings {
+                    overlay_visibility: visibility,
+                    sounds_enabled: false,
+                    input_feel,
+                    bandwidth_profile,
+                };
 
-            let mut m = HandshakeMachine::new(Role::Host);
-            let code = SessionCode::generate();
-            m.apply_local(LocalEvent::GenerateCode(code.clone())).unwrap();
-            m.apply_local(LocalEvent::Confirm).unwrap();
-            assert!(!m.is_active(), "{settings:?}: still waiting on the peer");
+                let mut m = HandshakeMachine::new(Role::Host);
+                let code = SessionCode::generate();
+                m.apply_local(LocalEvent::GenerateCode(code.clone())).unwrap();
+                m.apply_local(LocalEvent::Confirm).unwrap();
+                assert!(!m.is_active(), "{settings:?}: still waiting on the peer");
 
-            m.apply_peer(PeerMessage::Confirm { code }).unwrap();
-            assert!(
-                m.is_active(),
-                "{settings:?}: both sides confirmed with matching codes, this must activate"
-            );
+                m.apply_peer(PeerMessage::Confirm { code }).unwrap();
+                assert!(
+                    m.is_active(),
+                    "{settings:?}: both sides confirmed with matching codes, this must activate"
+                );
+            }
         }
     }
 }

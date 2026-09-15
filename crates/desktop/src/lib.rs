@@ -10,6 +10,7 @@
 
 pub mod overlay;
 
+use base64::Engine as _;
 use consent::transport::{LoopbackLink, PeerLink};
 use consent::{HandshakeMachine, LocalEvent, PeerMessage, Role, SessionCode, SessionState};
 use input::{InputBackend, InputError, KeyCode, MouseButton, NaturalInput, SessionGate};
@@ -17,8 +18,14 @@ use serde::Serialize;
 use settings::{OverlayVisibility, Settings};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use transport::bitrate::AdaptiveBitrateController;
+use transport::encoder::{DecodedFrame, SoftwareH264Decoder, SoftwareH264Encoder, VideoEncoder};
+use transport::frame_prep::{changed_fraction, downscale_for_profile};
+use transport::loopback::{LoopbackTransport, HELPER_TO_HOST_KEY_INFO, HOST_TO_HELPER_KEY_INFO};
+use transport::still_screen::{SendDecision, StillScreenPacer};
 
 struct Session {
     host: HandshakeMachine,
@@ -95,7 +102,7 @@ fn make_backend() -> Box<dyn InputBackend + Send> {
 
 struct AppState {
     session: Arc<Mutex<Session>>,
-    settings: Mutex<Settings>,
+    settings: Arc<Mutex<Settings>>,
     settings_path: PathBuf,
     /// The one instance through which every helper-initiated input event
     /// flows, on this (host) machine. `Mutex`-guarded because Tauri
@@ -103,6 +110,10 @@ struct AppState {
     /// there is only ever one `NaturalInput` for the whole app — matching
     /// the hotkey's "stop *all* input" scope.
     input: Mutex<NaturalInput<HostGate, Box<dyn InputBackend + Send>>>,
+    /// The most recently decoded frame the helper hasn't been sent yet —
+    /// written by `run_streaming_loop`, read (and consumed) by
+    /// `next_stream_frame`.
+    latest_stream_frame: Arc<Mutex<Option<DecodedFrame>>>,
 }
 
 fn load_settings(path: &Path) -> Settings {
@@ -434,6 +445,129 @@ fn helper_key_press(state: tauri::State<AppState>, code: u16) -> Result<(), Stri
     }
 }
 
+#[derive(Serialize, Clone)]
+struct StreamFrameDto {
+    width: usize,
+    height: usize,
+    /// Standard base64, tightly-packed RGBA8 — one `putImageData` away
+    /// from the helper's `<canvas>`.
+    rgba_base64: String,
+}
+
+/// Pops the latest decoded frame, if a new one has arrived since the last
+/// call. `None` is the normal, frequent case between production ticks —
+/// not an error the frontend needs to react to beyond "nothing new yet".
+#[tauri::command]
+fn next_stream_frame(state: tauri::State<AppState>) -> Option<StreamFrameDto> {
+    let frame = state.latest_stream_frame.lock().ok()?.take()?;
+    Some(StreamFrameDto {
+        width: frame.width,
+        height: frame.height,
+        rgba_base64: base64::engine::general_purpose::STANDARD.encode(&frame.rgba),
+    })
+}
+
+/// Capture → still-screen pacing → encode → encrypt (loopback, standing in
+/// for the real P2P transport — see `transport`'s crate docs) → decrypt →
+/// decode → `latest_stream_frame`, for as long as the app runs.
+///
+/// A no-op whenever the host isn't `Active`: the outer loop re-checks
+/// `session.host.is_active()` before doing anything, and the inner loop
+/// re-checks it every iteration too — the same "gate checked before every
+/// step, never a cached snapshot" discipline `input::NaturalInput` uses for
+/// injection, applied here to capture/encode/send. Capture always goes
+/// through `capture::capture_one_frame`, so the phase 2 exclusion
+/// (`exclude_window_from_capture`, applied once at window creation) covers
+/// this path automatically — there's no second capture entry point to keep
+/// in sync.
+///
+/// Runs on a dedicated OS thread rather than Tauri's async runtime: this
+/// app has no other async work, and a plain loop with `thread::sleep`
+/// keeps the resource-target story simple to audit (every sleep in this
+/// function is a deliberate cap on how often it captures/encodes — see the
+/// resource-target comments below).
+fn run_streaming_loop(session: Arc<Mutex<Session>>, settings: Arc<Mutex<Settings>>, latest_frame: Arc<Mutex<Option<DecodedFrame>>>) {
+    /// Outer cadence cap even while actively streaming: `capture_one_frame`
+    /// spins up and tears down a full capture session per call (phase 2's
+    /// API is single-shot, not a persistent stream), so hammering it as
+    /// fast as possible would itself be the "noticeable CPU/GPU load" the
+    /// resource target warns against. 3-4Hz is enough for a
+    /// mostly-static-content assistance session; `StillScreenPacer` pushes
+    /// well below this during genuinely still periods.
+    const CAPTURE_INTERVAL: Duration = Duration::from_millis(280);
+    const IDLE_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+    let is_active = || session.lock().map(|s| s.host.is_active()).unwrap_or(false);
+    let current_profile = || settings.lock().map(|s| s.bandwidth_profile).unwrap_or_default();
+
+    loop {
+        if !is_active() {
+            std::thread::sleep(IDLE_POLL_INTERVAL);
+            continue;
+        }
+
+        let Some((key_host_to_helper, key_helper_to_host)) = session.lock().ok().and_then(|s| {
+            Some((s.host.session_key(HOST_TO_HELPER_KEY_INFO)?, s.host.session_key(HELPER_TO_HOST_KEY_INFO)?))
+        }) else {
+            std::thread::sleep(IDLE_POLL_INTERVAL);
+            continue;
+        };
+        let (mut sender, receiver) = LoopbackTransport::pair(&key_host_to_helper, &key_helper_to_host);
+
+        let profile = current_profile();
+        let mut bitrate = AdaptiveBitrateController::new(profile);
+        let (Ok(mut encoder), Ok(mut decoder)) =
+            (SoftwareH264Encoder::new(bitrate.target_bps(), 30.0), SoftwareH264Decoder::new())
+        else {
+            std::thread::sleep(IDLE_POLL_INTERVAL);
+            continue;
+        };
+        let mut pacer = StillScreenPacer::new();
+        let mut prev_frame: Option<capture::BgraFrame> = None;
+
+        while is_active() {
+            let profile = current_profile();
+            bitrate.set_profile(profile);
+            encoder.set_target_bitrate(bitrate.target_bps());
+
+            let Ok(frame) = capture::capture_one_frame() else {
+                std::thread::sleep(CAPTURE_INTERVAL);
+                continue;
+            };
+            let scaled = downscale_for_profile(&frame, profile);
+            let changed = changed_fraction(prev_frame.as_ref(), &scaled);
+
+            let decision = pacer.decide(changed, std::time::Instant::now());
+            prev_frame = Some(scaled);
+            let SendDecision::Send { .. } = decision else {
+                let SendDecision::Skip { retry_after } = decision else { unreachable!() };
+                std::thread::sleep(retry_after.min(CAPTURE_INTERVAL * 4));
+                continue;
+            };
+
+            if let Ok(encoded) = encoder.encode(prev_frame.as_ref().expect("just set"), false) {
+                sender.send(&encoded);
+            }
+
+            if let Ok(Some(bytes)) = receiver.try_recv() {
+                if let Ok(Some(decoded)) = decoder.decode(&bytes) {
+                    if let Ok(mut slot) = latest_frame.lock() {
+                        *slot = Some(decoded);
+                    }
+                }
+            }
+
+            std::thread::sleep(CAPTURE_INTERVAL);
+        }
+
+        // Session ended: don't leave a stale frame around for whatever
+        // session connects next.
+        if let Ok(mut slot) = latest_frame.lock() {
+            *slot = None;
+        }
+    }
+}
+
 const HOTKEY: &str = "CommandOrControl+Alt+End";
 
 /// Excludes `label`'s window from any screen capture, unconditionally, for
@@ -497,12 +631,22 @@ pub fn run() {
             let session = Arc::new(Mutex::new(Session::new()));
             let gate = HostGate(session.clone());
             let natural_input = NaturalInput::new(gate, make_backend(), initial_settings.input_feel, (0, 0));
+            let settings = Arc::new(Mutex::new(initial_settings));
+            let latest_stream_frame = Arc::new(Mutex::new(None));
+
+            {
+                let session = session.clone();
+                let settings = settings.clone();
+                let latest_stream_frame = latest_stream_frame.clone();
+                std::thread::spawn(move || run_streaming_loop(session, settings, latest_stream_frame));
+            }
 
             app.manage(AppState {
                 session,
-                settings: Mutex::new(initial_settings),
+                settings,
                 settings_path,
                 input: Mutex::new(natural_input),
+                latest_stream_frame,
             });
 
             Ok(())
@@ -523,6 +667,7 @@ pub fn run() {
             helper_move_mouse,
             helper_click,
             helper_key_press,
+            next_stream_frame,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

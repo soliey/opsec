@@ -3,7 +3,10 @@ name = "consent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Auditable mutual-consent handshake for the remote assistance app. No capture, input, or transport logic lives here."
+description = "Auditable mutual-consent handshake for the remote assistance app, plus deriving transport key material from an already-confirmed session code. No capture, input, or networking logic lives here."
 
 [dependencies]
 rand = "0.8"
+hkdf = "0.12"
+sha2 = "0.10"
+zeroize = "1"

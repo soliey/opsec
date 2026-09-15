@@ -24,7 +24,7 @@
 //! `HandshakeMachine` (i.e. a brand new code and a brand new pair of
 //! confirmations) is required to connect again.
 
-use crate::code::SessionCode;
+use crate::code::{SessionCode, SessionKey};
 use std::fmt;
 
 /// Shown on the pre-connection screen on both machines, verbatim, before the
@@ -156,6 +156,22 @@ impl HandshakeMachine {
 
     pub fn is_active(&self) -> bool {
         matches!(self.state, SessionState::Active { .. })
+    }
+
+    /// Session key material for phase 4's transport, or `None` unless this
+    /// machine is `Active`. This is the *only* sanctioned way to get a key
+    /// out of a `SessionCode` — [`SessionCode::derive_key`] is
+    /// crate-private specifically so routing it through here is not
+    /// optional: a key can never be derived before both sides have
+    /// actually confirmed the same code, tying transport authorization to
+    /// the exact guarantee `apply_local`/`apply_peer` already prove. See
+    /// `SessionCode::derive_key` for what `info` is for and what this key
+    /// is (and isn't) good for.
+    pub fn session_key(&self, info: &[u8]) -> Option<SessionKey> {
+        match &self.state {
+            SessionState::Active { code } => Some(code.derive_key(info)),
+            _ => None,
+        }
     }
 
     pub fn is_ended(&self) -> bool {
@@ -474,5 +490,49 @@ mod tests {
         m.apply_peer(PeerMessage::Disconnected).unwrap();
         assert_eq!(*m.state(), SessionState::Ended { reason: EndReason::PeerDisconnected });
         assert!(!m.is_active());
+    }
+
+    #[test]
+    fn session_key_is_none_before_active_and_some_once_active() {
+        let mut m = HandshakeMachine::new(Role::Host);
+        assert!(m.session_key(b"purpose-a").is_none());
+
+        m.apply_local(LocalEvent::GenerateCode(code("042817"))).unwrap();
+        assert!(m.session_key(b"purpose-a").is_none());
+
+        m.apply_local(LocalEvent::Confirm).unwrap();
+        assert!(m.session_key(b"purpose-a").is_none(), "local confirm alone must not unlock a key");
+
+        m.apply_peer(PeerMessage::Confirm { code: code("042817") }).unwrap();
+        assert!(m.is_active());
+        assert!(m.session_key(b"purpose-a").is_some());
+    }
+
+    #[test]
+    fn session_key_matches_between_both_sides_of_the_same_confirmed_code() {
+        let mut host = HandshakeMachine::new(Role::Host);
+        let mut helper = HandshakeMachine::new(Role::Helper);
+        host.apply_local(LocalEvent::GenerateCode(code("042817"))).unwrap();
+        host.apply_local(LocalEvent::Confirm).unwrap();
+        helper.apply_local(LocalEvent::EnterCode(code("042817"))).unwrap();
+        helper.apply_local(LocalEvent::Confirm).unwrap();
+        host.apply_peer(PeerMessage::Confirm { code: code("042817") }).unwrap();
+        helper.apply_peer(PeerMessage::Confirm { code: code("042817") }).unwrap();
+
+        let host_key = host.session_key(b"remote-assist/sdp-auth/v1").unwrap();
+        let helper_key = helper.session_key(b"remote-assist/sdp-auth/v1").unwrap();
+        assert_eq!(host_key.as_bytes(), helper_key.as_bytes());
+    }
+
+    #[test]
+    fn session_key_is_none_again_once_ended() {
+        let mut m = HandshakeMachine::new(Role::Host);
+        m.apply_local(LocalEvent::GenerateCode(code("042817"))).unwrap();
+        m.apply_local(LocalEvent::Confirm).unwrap();
+        m.apply_peer(PeerMessage::Confirm { code: code("042817") }).unwrap();
+        assert!(m.session_key(b"purpose-a").is_some());
+
+        m.apply_local(LocalEvent::HotkeyEnd).unwrap();
+        assert!(m.session_key(b"purpose-a").is_none());
     }
 }

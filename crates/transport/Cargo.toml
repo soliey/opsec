@@ -1,0 +1,23 @@
+[package]
+name = "transport"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Phase 4: encrypted transport and screen streaming — SDP/session-key authentication extending the consent module, adaptive bitrate control, still-screen pacing, and video encoding. See src/lib.rs for what's real vs. honestly scoped as follow-up (real P2P WebRTC connectivity needs a second machine to verify and isn't wired to a live peer here; libdatachannel itself is unbuildable in this sandbox — no cmake)."
+
+[dependencies]
+consent = { path = "../consent" }
+settings = { path = "../settings" }
+capture = { path = "../capture" }
+chacha20poly1305 = "0.10"
+hmac = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+openh264 = "0.9"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+] }

@@ -60,6 +60,32 @@ pub enum InputFeel {
     VeryNatural,
 }
 
+/// The streaming bitrate ceiling for the current and future sessions. The
+/// adaptive bitrate controller in `crates/transport` (`bitrate::
+/// AdaptiveBitrateController`) never targets above this profile's
+/// [`max_bps`](BandwidthProfile::max_bps), regardless of how clean the link
+/// looks — it can only ever ask for less, never more, than what the host
+/// chose here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BandwidthProfile {
+    /// Up to 2 Mbps.
+    #[default]
+    Standard,
+    /// Up to 0.5 Mbps, for constrained/metered links.
+    Low,
+}
+
+impl BandwidthProfile {
+    /// The hard ceiling in bits per second.
+    pub const fn max_bps(self) -> u32 {
+        match self {
+            BandwidthProfile::Standard => 2_000_000,
+            BandwidthProfile::Low => 500_000,
+        }
+    }
+}
+
 /// Host preferences for the current and future sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
@@ -68,6 +94,7 @@ pub struct Settings {
     /// session" is `sounds_enabled: false`.
     pub sounds_enabled: bool,
     pub input_feel: InputFeel,
+    pub bandwidth_profile: BandwidthProfile,
 }
 
 impl Default for Settings {
@@ -76,6 +103,7 @@ impl Default for Settings {
             overlay_visibility: OverlayVisibility::Full,
             sounds_enabled: true,
             input_feel: InputFeel::Smooth,
+            bandwidth_profile: BandwidthProfile::Standard,
         }
     }
 }
@@ -98,6 +126,14 @@ mod tests {
         assert!(s.sounds_enabled);
         assert!(!s.is_quiet_session());
         assert_eq!(s.input_feel, InputFeel::Smooth);
+        assert_eq!(s.bandwidth_profile, BandwidthProfile::Standard);
+    }
+
+    #[test]
+    fn bandwidth_profile_ceilings_match_the_phase_4_spec() {
+        assert_eq!(BandwidthProfile::Standard.max_bps(), 2_000_000);
+        assert_eq!(BandwidthProfile::Low.max_bps(), 500_000);
+        assert!(BandwidthProfile::Low.max_bps() < BandwidthProfile::Standard.max_bps());
     }
 
     #[test]
@@ -117,6 +153,9 @@ mod tests {
         assert_eq!(serde_json::to_string(&InputFeel::Instant).unwrap(), "\"instant\"");
         assert_eq!(serde_json::to_string(&InputFeel::Smooth).unwrap(), "\"smooth\"");
         assert_eq!(serde_json::to_string(&InputFeel::VeryNatural).unwrap(), "\"very_natural\"");
+
+        assert_eq!(serde_json::to_string(&BandwidthProfile::Standard).unwrap(), "\"standard\"");
+        assert_eq!(serde_json::to_string(&BandwidthProfile::Low).unwrap(), "\"low\"");
     }
 
     #[test]
@@ -125,6 +164,7 @@ mod tests {
             overlay_visibility: OverlayVisibility::Presenter,
             sounds_enabled: false,
             input_feel: InputFeel::VeryNatural,
+            bandwidth_profile: BandwidthProfile::Low,
         };
         let json = serde_json::to_string(&s).expect("serialize");
         let back: Settings = serde_json::from_str(&json).expect("deserialize");

@@ -30,6 +30,8 @@ const btnSettingsToggle = el("btn-settings-toggle");
 const quietSessionCheckbox = el("quiet-session-checkbox");
 const remoteSurfacePanel = el("remote-surface-panel");
 const remoteSurface = el("remote-surface");
+const streamViewPanel = el("stream-view-panel");
+const streamCanvas = el("stream-canvas");
 
 heading.textContent = "Remote Assist";
 subheading.textContent = isHost ? "You are the HOST (being helped)" : "You are the HELPER (assisting)";
@@ -43,7 +45,12 @@ const END_REASON_TEXT = {
   PeerDisconnected: "The other person's connection was lost.",
 };
 
-let currentSettings = { overlay_visibility: "full", sounds_enabled: true, input_feel: "smooth" };
+let currentSettings = {
+  overlay_visibility: "full",
+  sounds_enabled: true,
+  input_feel: "smooth",
+  bandwidth_profile: "standard",
+};
 let lastPhase = null;
 
 function show(node, visible) {
@@ -80,6 +87,9 @@ async function loadSettings() {
   document.querySelectorAll('input[name="input-feel"]').forEach((r) => {
     r.checked = r.value === currentSettings.input_feel;
   });
+  document.querySelectorAll('input[name="bandwidth"]').forEach((r) => {
+    r.checked = r.value === currentSettings.bandwidth_profile;
+  });
 }
 
 async function saveSettings() {
@@ -104,6 +114,12 @@ if (isHost) {
   document.querySelectorAll('input[name="input-feel"]').forEach((radio) => {
     radio.onchange = async () => {
       currentSettings.input_feel = radio.value;
+      await saveSettings();
+    };
+  });
+  document.querySelectorAll('input[name="bandwidth"]').forEach((radio) => {
+    radio.onchange = async () => {
+      currentSettings.bandwidth_profile = radio.value;
       await saveSettings();
     };
   });
@@ -140,6 +156,32 @@ if (!isHost) {
   });
 }
 
+// Draws whatever the host->helper streaming pipeline (capture -> still-
+// screen pacing -> H.264 encode -> encrypted loopback -> decode, all
+// gated on the session being Active) has most recently produced. A `null`
+// result just means nothing new arrived since the last poll — normal and
+// frequent, especially while the host's screen is mostly still.
+async function pollStreamFrame() {
+  if (isHost || lastPhase !== "active") return;
+  let frame;
+  try {
+    frame = await invoke("next_stream_frame");
+  } catch (e) {
+    return;
+  }
+  if (!frame) return;
+
+  const raw = atob(frame.rgba_base64);
+  const rgba = new Uint8ClampedArray(raw.length);
+  for (let i = 0; i < raw.length; i++) rgba[i] = raw.charCodeAt(i);
+
+  if (streamCanvas.width !== frame.width || streamCanvas.height !== frame.height) {
+    streamCanvas.width = frame.width;
+    streamCanvas.height = frame.height;
+  }
+  streamCanvas.getContext("2d").putImageData(new ImageData(rgba, frame.width, frame.height), 0, 0);
+}
+
 async function refresh(dto) {
   if (!dto) {
     dto = await invoke("get_state", { role });
@@ -160,6 +202,7 @@ async function refresh(dto) {
   show(activePanelMinimal, false);
   show(endedPanel, false);
   show(remoteSurfacePanel, false);
+  show(streamViewPanel, false);
   btnPrimary.disabled = false;
   show(el("actions-panel"), true);
   show(el("status-panel"), true);
@@ -248,9 +291,10 @@ async function refresh(dto) {
       } else {
         show(activePanel, true);
       }
-      // The control surface is helper-only: the host is the one being
-      // controlled, not the one controlling.
+      // The control surface and stream view are helper-only: the host is
+      // the one being controlled/watched, not the one controlling/watching.
       show(remoteSurfacePanel, !isHost);
+      show(streamViewPanel, !isHost);
       break;
     }
 
@@ -278,3 +322,9 @@ btnRestart.onclick = async () => {
 // Light polling so this window picks up state changes driven by the other
 // window's actions (e.g. the peer confirming, or the global hotkey).
 setInterval(() => refresh(), 400);
+
+// Independent, faster poll for stream frames — decoupled from the state
+// poll above so the picture updates promptly without needing a full state
+// round-trip each time. `pollStreamFrame` itself is a no-op whenever it's
+// not the helper's active session, so this is idle almost all the time.
+setInterval(() => pollStreamFrame(), 200);
