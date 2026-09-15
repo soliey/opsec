@@ -10,9 +10,6 @@
  `-----'      `-----'  `------'  `--'    `------'  `--'      
 ```
 
-Consent-first remote assistance. No connection without both parties
-typing the same session code and pressing Confirm — see `CLAUDE.md` for
-the full threat model.
 
 ## Run it
 
