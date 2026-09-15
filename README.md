@@ -12,7 +12,9 @@
 
 
 ## Run it
+download the latest [installer](github.com/soliey/opsec/releases)
 
+download the *source code*
 Requires the Rust MSVC toolchain (Visual Studio Build Tools, "Desktop
 development with C++" workload) on Windows.
 
